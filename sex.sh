@@ -22,7 +22,7 @@
 #
 function write_msg()
 {
-    timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
+    local timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
     echo "($timestamp) [*] $@"
 }
 
@@ -40,7 +40,7 @@ function write_msg()
 function is_elf()
 {
     local ret=1
-    magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
+    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
     if [[ "$magic" == "7f454c46" ]]; then
         ret=0
     fi
@@ -61,7 +61,7 @@ function is_elf()
 function is_pe_coff()
 {
     local ret=1
-    magic="$(hexdump -e '2/1 "%x" "\n"' -n 2 $1)"
+    local magic="$(hexdump -e '2/1 "%x" "\n"' -n 2 $1)"
     if [[ "$magic" == "4d5a" ]]; then
         ret=0
     fi
@@ -82,7 +82,7 @@ function is_pe_coff()
 function is_fat()
 {
     local ret=1
-    magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
+    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
     if [[ "$magic" == "cafebabe" || "$magic" == "bebafeca" ]]; then
         ret=0
     fi
@@ -103,7 +103,7 @@ function is_fat()
 function is_macho()
 {
     local ret=1
-    magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)" 
+    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)" 
     if [[ "$magic" =~ feedfac[ef] || "$magic" =~ c[ef]faedfe ]]; then
         ret=0
     fi
@@ -129,29 +129,29 @@ function dump_objdump()
         offset="$(printf "%d" 0x$offset)"
         size="$(printf "%d" 0x$size)"
 
-        l="_"
+        local l="_"
         if [[ "$flags" =~ LOAD ]]; then
             l="l"
         fi
 
-        r="_"
+        local r="_"
         if [[ "$flags" =~ READONLY ]]; then
             r="r"
         fi
 
-        x="_"
+        local x="_"
         if  [[ "$flags" =~ CODE ]]; then
             x="x"
         fi
 
-        w="_"
+        local w="_"
         if [[ "$flags" =~ DATA ]]; then
             r="r"
             w="w"
         fi
 
         if [[ "$flags" =~ CONTENTS ]]; then
-            filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
+            local filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
             write_msg "Exporting section \"$name\" in \"$filename\""
             dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
         fi
@@ -177,24 +177,24 @@ dump_otool()
             while [[ ! "$line" =~ initprot ]]; do
                 read line
             done
-            initprot="$(printf "%d" 0x${line##*0x})"
+            local initprot="$(printf "%d" 0x${line##*0x})"
 
-            l="_"
+            local l="_"
             if [[ $initprot != 0 ]]; then
                 l="l"
             fi
 
-            r="_"
+            local r="_"
             if [[ $(($initprot & 1)) != 0 ]]; then
                 r="r"
             fi
 
-            w="_"
+            local w="_"
             if [[ $(($initprot & 2)) != 0 ]]; then
                 w="w"
             fi
 
-            x="_"
+            local x="_"
             if [[ $(($initprot & 4)) != 0 ]]; then
                 x="x"
             fi
@@ -206,7 +206,7 @@ dump_otool()
             read _ offset
 
             size="$(printf "%d" $size)"
-            filename="$2/$segname.$sectname-$addr-$size-$offset-$l$r$w$x.bin"
+            local filename="$2/$segname.$sectname-$addr-$size-$offset-$l$r$w$x.bin"
 
             write_msg \
                 "Extracting section \"$segname.$sectname\" to \"$filename\""
@@ -222,7 +222,7 @@ function main()
         echo "$0 <file(s)>"
     else
         while [[ "$1" ]]; do
-            dir="$(basename $1)"
+            local dir="$(basename $1)"
             write_msg "Creating directory \"$dir\""
             mkdir "$dir" &>/dev/null
 
@@ -238,13 +238,13 @@ function main()
                 write_msg "$1: FAT"
 
                 # Read list of architectures in FAT executable.
-                archs="$(lipo -detailed_info "$1" | egrep "^architecture" | \
+                local archs="$(lipo -detailed_info "$1" | egrep "^architecture" | \
                     cut -d " " -f 2)"
 
                 # Export one architecture at a time and store the results in
                 # subdirectories under "$dir/".
                 for arch in $archs; do
-                    out="$dir.$arch.bin"
+                    local out="$dir.$arch.bin"
                     write_msg "Extracting architecture \"$arch\" in \"$out\""
                     lipo -extract "$arch" -output "$out" "$1" &>/dev/null
 

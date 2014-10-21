@@ -1,0 +1,5 @@
+2014-10-21 huku <huku@grhack.net>
+
+    * Add missing `local' directives in "sex.sh" to avoid trashing the global
+      namespace (spotted by slasher@grhack.net).
+
