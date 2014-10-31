@@ -7,8 +7,7 @@ huku &lt;[huku@grhack.net](mailto:huku@grhack.net)&gt;
 
 This is a small shell script I developed for personal use. It exports sections
 from various executable formats (ELF, PE-COFF, FAT & Mach-O) and saves them in 
-separate files named after the section in question. Filenames match the pattern
-shown below:
+separate files. Filenames match the pattern shown below:
 
 ```
 $name-$vma-$size-$offset-$flags.bin
