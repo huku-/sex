@@ -1,3 +1,14 @@
+2015-07-30 huku <huku@grhack.net>
+
+    * Modified "sex.sh" to write the name of the executable's architecture in
+      a file named "aux.txt".
+    * Fixed problem with Mach-O segments in `dump_otool()'.
+    * Modified "sex_loader.py" to make it work on Microsoft Windows.
+    * Renamed member `address' of class `SexLoader' to `start_address' and
+      added member `end_address'.
+    * Modified `SexLoader' constructor to read "aux.txt".
+
+
 2014-10-31 huku <huku@grhack.net>
 
     * Added "NOTES.md".

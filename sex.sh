@@ -103,11 +103,33 @@ function is_fat()
 function is_macho()
 {
     local ret=1
-    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)" 
+    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
     if [[ "$magic" =~ feedfac[ef] || "$magic" =~ c[ef]faedfe ]]; then
         ret=0
     fi
     return $ret
+}
+
+
+# Dumps the architecture name of the executable file in "aux.txt".
+#
+# Arguments:
+#
+#     $1 - Full path to executable.
+#     $2 - Directory where "aux.txt" will be created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_arch()
+{
+    local out="$(file "$1")"
+    if echo $out | egrep "[xX]86[_-]64" &>/dev/null; then
+        echo "x86_64" > "$2/aux.txt"
+    elif echo $out | egrep "([iI][2-6]86|[iI]ntel 80.?86)" &>/dev/null; then
+        echo "i386" > "$2/aux.txt"
+    fi
 }
 
 
@@ -124,7 +146,9 @@ function is_macho()
 #
 function dump_objdump()
 {
-    objdump -w -h $1 | egrep "^[[:space:]]+[[:digit:]]" | \
+    dump_arch "$1" "$2"
+
+    objdump -w -h "$1" | egrep "^[[:space:]]+[[:digit:]]" | \
             while read idx name size vma lma offset align flags; do
         offset="$(printf "%d" 0x$offset)"
         size="$(printf "%d" 0x$size)"
@@ -172,8 +196,10 @@ function dump_objdump()
 #
 dump_otool()
 {
-    otool -l "$1" |  while read line; do
-        if [[ "$line" =~ LC_SEGMENT ]]; then
+    dump_arch "$1" "$2"
+
+    otool -l "$1" | while read line; do
+        if [[ "$line" =~ LC_SEGMENT(_64)?$ ]]; then
             while [[ ! "$line" =~ initprot ]]; do
                 read line
             done

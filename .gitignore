@@ -1,8 +1,24 @@
-core
-a.out
+*.local
 
 *~
-*.local
+*.swp
+
+*.obj
+*.ilk
+*.pdb
+*.pch
+*.exe
+*.vcproj
+*.sln
+
 *.o
 *.so
+a.out
+
 *.core
+core
+
+*.pyc
+
+.DS_Store
+
