@@ -1,3 +1,22 @@
+2015-09-16 huku <huku@grhack.net>
+
+    * Added helper functions `is_decimal()' and `is_hexadecimal()'.
+    * Modified "sex.sh" to append the ".sex" suffix in the directory name that
+      will hold the extracted information.
+    * Renamed "aux.txt" to "aux.ini"; we use a standard INI format which is
+      easily parsable by Python's `ConfigParser' object.
+    * Added experimental support for dumping PE-COFF exports, imports,
+      relocations and functions. Information is written in "aux.ini".
+    * Moved `dump_arch()' in `main()'.
+    * Added check for `objdump'; some package managers on MacOS X install
+      `objdump' as `gobjdump' instead.
+    * Updated "sex_loader.py" to parse "aux.ini".
+    * Added method `get_section_for_address_range()' in class `SexLoader' and
+      modified `read()' accordingly.
+    * Updated "README.md".
+    * Updated "NOTES.md"
+
+
 2015-07-30 huku <huku@grhack.net>
 
     * Modified "sex.sh" to write the name of the executable's architecture in

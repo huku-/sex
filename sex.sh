@@ -1,13 +1,17 @@
 #!/bin/bash
 # S.EX. (Section EXtractor) v1.0
 #
-# Extracts sections from various executable formats (ELF, PE-COFF, FAT & Mach-O)
-# and saves them in separate files named after the corresponding section.
+# Extracts sections and auxiliary information from various executable file
+# formats (ELF, PE-COFF, FAT & Mach-O).
 #
 # Section data dumped by "sex.sh" can be loaded and accessed by a Python class,
 # named `SEXLoader', defined in "sex_loader.py".
 #
 # huku <huku@grhack.net>
+
+
+# Path to `objdump' binary; see comment in `main()' for more information.
+objdump=
 
 
 # Writes a message prefixed by the current timestamp to the standard output.
@@ -24,6 +28,46 @@ function write_msg()
 {
     local timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
     echo "($timestamp) [*] $@"
+}
+
+
+# Checks that "$1" is a decimal number.
+#
+# Arguments:
+#
+#     $1 - The string to be checked.
+#
+# Returns:
+#
+#     $? - True if "$1" is a decimal number, false otherwise.
+#
+function is_decimal()
+{
+    local r=1
+    if [[ "$1" =~ ^(\+|\-)?[1-9][0-9]*$ ]]; then
+        r=0
+    fi
+    return $r
+}
+
+
+# Checks that "$1" is a hexadecimal number.
+#
+# Arguments:
+#
+#     $1 - The string to be checked.
+#
+# Returns:
+#
+#     $? - True if "$1" is a hexadecimal number, false otherwise.
+#
+function is_hexadecimal()
+{
+    local r=1
+    if [[ "$1" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
+        r=0
+    fi
+    return $r
 }
 
 
@@ -69,6 +113,218 @@ function is_pe_coff()
 }
 
 
+# Dumps PE-COFF imports in "aux.ini".
+#
+# Arguments:
+#
+#     $1 - Full path to the PE-COFF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_pe_coff_exit_points()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+/ImageBase/ {
+    image_base = int("0x" \$2)
+}
+
+/DLL Name/ {
+    name = tolower(substr(\$0, match(\$0, ": ") + 2))
+    getline
+    getline
+    num = 0
+    while(!match(\$0, /^$/)) {
+        address = int("0x" \$2) + image_base
+        print sprintf("exit_point%d=0x%lx,%s!%s", num, address, name, \$3)
+        num += 1
+        getline
+    }
+}
+EOF
+
+    echo "[exit_points]" >> "$2/aux.ini"
+    "$objdump" -p "$1" | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
+# Dumps PE-COFF exports in "aux.ini".
+#
+# Arguments:
+#
+#     $1 - Full path to the PE-COFF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_pe_coff_entry_points()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+BEGIN {
+    num = 0
+}
+
+/AddressOfEntryPoint/ {
+    entry_point = int("0x" \$2)
+}
+
+/ImageBase/ {
+    image_base = int("0x" \$2)
+}
+
+/Export Address Table --/ {
+    getline
+    num = 0
+    while(!match(\$0, /^$/)) {
+        split(\$0, tmp1, "] ")
+        split(tmp1[3], tmp2)
+        addresses[num] = int("0x" tmp2[1]) + image_base
+        num += 1
+        getline
+    }
+}
+
+/\[Ordinal\/Name Pointer\] Table/ {
+    getline
+    num = 0
+    while(!match(\$0, /^$/)) {
+        split(\$0, tmp1, "] ")
+        names[num] = tmp1[2]
+        num += 1
+        getline
+    }
+}
+
+END {
+    addresses[num] = image_base + entry_point
+    names[num] = "<none>"
+    for(num = 0; num < length(addresses); num += 1) {
+        print sprintf("entry_point%d=0x%lx,%s", num, addresses[num], names[num])
+    }
+}
+EOF
+
+    echo "[entry_points]" >> "$2/aux.ini"
+    "$objdump" -p "$1" | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
+# Parse the relocations of a PE-COFF and write them in "aux.ini". Unfortunately
+# `objdump' is buggy and won't parse ".reloc" sections of XCOFF files correctly.
+#
+# Arguments:
+#
+#     $1 - Full path to the PE-COFF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_pe_coff_relocations()
+{
+    local image_base="0x$("$objdump" -p "$1" | awk '/ImageBase/ { print $2 }')"
+
+    echo "[relocations]" >> "$2/aux.ini"
+
+    # Check if we have extracted a section whose name starts with ".reloc-".
+    if [ -f "$2/".reloc* ]; then
+        local filename="$(echo "$2"/.reloc*)"
+        local offset=0
+        local num=0
+
+        local rva=
+        local block_size=
+        local relocs=
+        while true; do
+
+            # Read block RVA.
+            rva="$(hexdump -s "$offset" -e '"%u"' -n 4 "$filename")"
+            offset=$(($offset + 4))
+
+            # Read block size.
+            block_size="$(hexdump -s "$offset" -e '"%u"' -n 4 "$filename")"
+            offset=$(($offset + 4))
+
+            # A zero RVA or block size indicates that we should stop parsing the
+            # relocation section.
+            if ! is_decimal "$rva" || [[ "$rva" -eq 0 ]]; then
+                break
+            fi
+            if ! is_decimal "$block_size" || [[ "$block_size" -eq 0 ]]; then
+                break
+            fi
+
+            # Subtract the block header size from the overall block size.
+            block_size=$(($block_size - 8))
+
+            # Dump all relocations for this RVA with one command. Makes the
+            # whole process much faster than dumping relocations one by one.
+            relocs="$(hexdump -s "$offset" -e "$(($block_size / 2))/2 \"0x%x\\n\"" \
+                -n "$block_size" "$filename")"
+
+            for reloc in $relocs; do
+                reloc="$(($image_base + $rva + ($reloc & 0x0fff)))"
+                printf "relocation%d=0x%x\n" "$num" "$reloc" >> "$2/aux.ini"
+                num=$(($num + 1))
+            done
+
+            offset=$(($offset + $block_size))
+        done
+    fi
+
+    echo "" >> "$2/aux.ini"
+}
+
+
+# Dump PE-COFF executable functions from ".pdata" in "aux.ini".
+#
+# Arguments:
+#
+#     $1 - Full path to the PE-COFF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_pe_coff_functions()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+/The Function Table/ {
+    getline
+    getline
+
+    num = 0
+    while(!match(\$0, /^$/)) {
+        print sprintf("function%d=0x%lx", num, int("0x" \$2))
+        num += 1
+        getline
+    }
+}
+EOF
+
+    echo "[functions]" >> "$2/aux.ini"
+    "$objdump" -p "$1" | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
 # Check if the specified file is a MacOS FAT executable.
 #
 # Arguments:
@@ -111,12 +367,12 @@ function is_macho()
 }
 
 
-# Dumps the architecture name of the executable file in "aux.txt".
+# Dumps the architecture name of the executable file in "aux.ini".
 #
 # Arguments:
 #
 #     $1 - Full path to executable.
-#     $2 - Directory where "aux.txt" will be created.
+#     $2 - Directory where "aux.ini" will be created.
 #
 # Returns:
 #
@@ -125,11 +381,13 @@ function is_macho()
 function dump_arch()
 {
     local out="$(file "$1")"
-    if echo $out | egrep "[xX]86[_-]64" &>/dev/null; then
-        echo "x86_64" > "$2/aux.txt"
-    elif echo $out | egrep "([iI][2-6]86|[iI]ntel 80.?86)" &>/dev/null; then
-        echo "i386" > "$2/aux.txt"
+    echo "[aux]" > "$2/aux.ini"
+    if echo $out | egrep "([xX]86[_-]64|PE32\+)" &>/dev/null; then
+        echo "arch=x86_64" >> "$2/aux.ini"
+    elif echo $out | egrep "([iI][2-6]86|[iI]ntel 80.?86|PE32)" &>/dev/null; then
+        echo "arch=i386" >> "$2/aux.ini"
     fi
+    echo "" >> "$2/aux.ini"
 }
 
 
@@ -146,9 +404,7 @@ function dump_arch()
 #
 function dump_objdump()
 {
-    dump_arch "$1" "$2"
-
-    objdump -w -h "$1" | egrep "^[[:space:]]+[[:digit:]]" | \
+    "$objdump" -w -h "$1" | egrep "^[[:space:]]+[[:digit:]]" | \
             while read idx name size vma lma offset align flags; do
         offset="$(printf "%d" 0x$offset)"
         size="$(printf "%d" 0x$size)"
@@ -176,7 +432,7 @@ function dump_objdump()
 
         if [[ "$flags" =~ CONTENTS ]]; then
             local filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
-            write_msg "Exporting section \"$name\" in \"$filename\""
+            write_msg "Dumping section \"$name\" in \"$filename\""
             dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
         fi
     done
@@ -196,8 +452,6 @@ function dump_objdump()
 #
 dump_otool()
 {
-    dump_arch "$1" "$2"
-
     otool -l "$1" | while read line; do
         if [[ "$line" =~ LC_SEGMENT(_64)?$ ]]; then
             while [[ ! "$line" =~ initprot ]]; do
@@ -234,8 +488,7 @@ dump_otool()
             size="$(printf "%d" $size)"
             local filename="$2/$segname.$sectname-$addr-$size-$offset-$l$r$w$x.bin"
 
-            write_msg \
-                "Extracting section \"$segname.$sectname\" to \"$filename\""
+            write_msg "Dumping section \"$segname.$sectname\" to \"$filename\""
             dd if="$1" of="$filename" bs=1 count=$size skip=$offset &>/dev/null
         fi
     done
@@ -247,10 +500,21 @@ function main()
     if [[ $# -lt 1 ]]; then
         echo "$0 <file(s)>"
     else
+        # Resolve full path to `objdump'. On MacOS X, some package management
+        # tools install `objdump' as `gobjdump'.
+        objdump="$(which objdump || which gobjdump)"
+        if [[ -z "$objdump" ]]; then
+            write_msg "Cannot find objdump or gobjdump binary"
+            return
+        fi
+
         while [[ "$1" ]]; do
-            local dir="$(basename $1)"
+            local dir="$(basename $1).sex"
             write_msg "Creating directory \"$dir\""
             mkdir "$dir" &>/dev/null
+
+            write_msg "Storing auxiliary information in \"$dir/aux.ini\""
+            dump_arch "$1" "$dir"
 
             if is_elf "$1"; then
                 write_msg "$1: ELF"
@@ -260,12 +524,23 @@ function main()
                 write_msg "$1: PE-COFF"
                 dump_objdump "$1" "$dir"
 
+                write_msg "Dumping exit points in \"aux.ini\""
+                dump_pe_coff_exit_points "$1" "$dir"
+
+                write_msg "Dumping entry points in \"aux.ini\""
+                dump_pe_coff_entry_points "$1" "$dir"
+
+                write_msg "Dumping relocations in \"aux.ini\""
+                dump_pe_coff_relocations "$1" "$dir"
+
+                write_msg "Dumping functions in \"aux.ini\""
+                dump_pe_coff_functions "$1" "$dir"
+
             elif is_fat "$1"; then
                 write_msg "$1: FAT"
 
                 # Read list of architectures in FAT executable.
-                local archs="$(lipo -detailed_info "$1" | egrep "^architecture" | \
-                    cut -d " " -f 2)"
+                local archs="$(lipo -detailed_info "$1" | awk '/^architecture/ { print $2 }')"
 
                 # Export one architecture at a time and store the results in
                 # subdirectories under "$dir/".
@@ -285,7 +560,7 @@ function main()
                 dump_otool "$1" "$dir"
 
             else
-                write_msg "$1: unknown architecture"
+                write_msg "$1: Unknown architecture"
             fi
             shift
         done
@@ -297,3 +572,4 @@ function main()
 main $@
 
 # EOF
+
