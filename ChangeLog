@@ -1,3 +1,9 @@
+2015-09-19 huku <huku@grhack.net>
+
+    * Fixed bug in `dump_pe_coff_exit_points()' and modified it to print thunk
+      addresses instead of import name addresses.
+
+
 2015-09-16 huku <huku@grhack.net>
 
     * Added helper functions `is_decimal()' and `is_hexadecimal()'.

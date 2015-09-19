@@ -128,19 +128,36 @@ function dump_pe_coff_exit_points()
 {
     local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
     cat > "$tempfile" << EOF
-/ImageBase/ {
+BEGIN {
+    num = 0
+}
+
+/^Magic/ {
+    if(index(\$0, "PE32+") > 0)
+        thunk_size = 8
+    else
+        thunk_size = 4
+}
+
+/^ImageBase/ {
     image_base = int("0x" \$2)
+}
+
+/^([[:space:]]+[[:xdigit:]]+){6}$/ {
+    thunk_address = int("0x" \$6)
+    if(thunk_address != 0)
+        thunk_address += image_base
 }
 
 /DLL Name/ {
     name = tolower(substr(\$0, match(\$0, ": ") + 2))
     getline
     getline
-    num = 0
+
     while(!match(\$0, /^$/)) {
-        address = int("0x" \$2) + image_base
-        print sprintf("exit_point%d=0x%lx,%s!%s", num, address, name, \$3)
+        print sprintf("exit_point%d=0x%lx,%s!%s", num, thunk_address, name, \$3)
         num += 1
+        thunk_address += thunk_size
         getline
     }
 }
@@ -177,7 +194,7 @@ BEGIN {
     entry_point = int("0x" \$2)
 }
 
-/ImageBase/ {
+/^ImageBase/ {
     image_base = int("0x" \$2)
 }
 
@@ -235,7 +252,7 @@ EOF
 #
 function dump_pe_coff_relocations()
 {
-    local image_base="0x$("$objdump" -p "$1" | awk '/ImageBase/ { print $2 }')"
+    local image_base="0x$("$objdump" -p "$1" | awk '/^ImageBase/ { print $2 }')"
 
     echo "[relocations]" >> "$2/aux.ini"
 
