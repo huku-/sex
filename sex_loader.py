@@ -38,10 +38,11 @@ class SexLoader(object):
         self.dirname = dirname
 
         self.sections = []
-        self.exit_points = []
-        self.entry_points = []
-        self.relocations = []
-        self.functions = []
+
+        self.exit_points = set()
+        self.entry_points = set()
+        self.relocations = set()
+        self.functions = set()
 
         # Map of addresses to symbolic names.
         self.labels = {}
@@ -63,24 +64,23 @@ class SexLoader(object):
                     for _, label in rcp.items('exit_points'):
                         address, name = label.split(',')
                         address = int(address, 16)
-                        self.exit_points.append(address)
+                        self.exit_points.add(address)
                         self.labels[address] = name
 
                     # Get entry points (addresses of public symbols).
                     for _, label in rcp.items('entry_points'):
                         address, name = label.split(',')
                         address = int(address, 16)
-                        self.entry_points.append(address)
+                        self.entry_points.add(address)
                         self.labels[address] = name
 
                     # Get list of relocation entries.
                     for _, address in rcp.items('relocations'):
-                        self.relocations.append(int(address, 16))
+                        self.relocations.add(int(address, 16))
 
                     # Get possible metadata indicating function boundaries.
                     for _, address in rcp.items('functions'):
-                        self.functions.append(int(address, 16))
-
+                        self.functions.add(int(address, 16))
 
         # Sort sections by starting address in ascending order. We will later
         # use binary search over this list's elements.
@@ -91,7 +91,7 @@ class SexLoader(object):
         return '<SexLoader "%s">' % self.dirname
 
 
-    def get_section_for_address_range(self, address, size):
+    def get_section_for_address_range(self, address, length=1):
         '''
         Locate and return the section that contains the given address range.
         Returns section's `Section' instance or `None' on error.
@@ -111,7 +111,7 @@ class SexLoader(object):
 
         # Binary search outcome needs to be verified.
         if section and address >= section.start_address and \
-                address + size - 1 < section.end_address:
+                address + length - 1 < section.end_address:
             ret = section
 
         return ret
