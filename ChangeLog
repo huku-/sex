@@ -1,3 +1,10 @@
+2016-03-12 huku <huku@grhack.net>
+
+    * Fixed filename parsing problem in "sex_loader.py".
+    * Check relocation type in `dump_pe_coff_relocations()'. Missing check
+      resulted in some invalid relocations being printed.
+
+
 2015-10-09 huku <huku@grhack.net>
 
     * Use sets instead of lists in "sex_loader.py".

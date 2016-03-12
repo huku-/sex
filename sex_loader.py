@@ -48,7 +48,7 @@ class SexLoader(object):
         self.labels = {}
 
         for filename in os.listdir(dirname):
-            if filename.rsplit('.', 1)[1] == 'bin':
+            if filename.rpartition('.')[-1] == 'bin':
                 filename = '%s%s%s' % (dirname, os.path.sep, filename)
                 self.sections.append(Section(filename))
 

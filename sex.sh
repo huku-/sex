@@ -293,9 +293,12 @@ function dump_pe_coff_relocations()
                 -n "$block_size" "$filename")"
 
             for reloc in $relocs; do
-                reloc="$(($image_base + $rva + ($reloc & 0x0fff)))"
-                printf "relocation%d=0x%x\n" "$num" "$reloc" >> "$2/aux.ini"
-                num=$(($num + 1))
+                # XXX: Handle other relocation types?
+                if [[ "$(($reloc >> 12))" -eq 3 ]]; then
+                    reloc="$(($image_base + $rva + ($reloc & 0x0fff)))"
+                    printf "relocation%d=0x%x\n" "$num" "$reloc" >> "$2/aux.ini"
+                    num=$(($num + 1))
+                fi
             done
 
             offset=$(($offset + $block_size))
