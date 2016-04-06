@@ -71,24 +71,27 @@ function is_hexadecimal()
 }
 
 
-# Check if the specified file is an ELF executable.
+# Dumps the architecture name of the executable file in "aux.ini".
 #
 # Arguments:
 #
-#     $1 - Full path to the file to check.
+#     $1 - Full path to executable.
+#     $2 - Directory where "aux.ini" will be created.
 #
 # Returns:
 #
-#     $? - True if the given file is an ELF, false otherwise.
+#     $? - Undefined
 #
-function is_elf()
+function dump_arch()
 {
-    local ret=1
-    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
-    if [[ "$magic" == "7f454c46" ]]; then
-        ret=0
+    local out="$(file "$1")"
+    echo "[aux]" > "$2/aux.ini"
+    if echo $out | egrep "([xX]86[_-]64|PE32\+)" &>/dev/null; then
+        echo "arch=x86_64" >> "$2/aux.ini"
+    elif echo $out | egrep "([iI][2-6]86|[iI]ntel 80.?86|PE32)" &>/dev/null; then
+        echo "arch=i386" >> "$2/aux.ini"
     fi
-    return $ret
+    echo "" >> "$2/aux.ini"
 }
 
 
@@ -110,6 +113,73 @@ function is_pe_coff()
         ret=0
     fi
     return $ret
+}
+
+
+# Dumps the sections of a PE-COFF executable in separate files. I originally
+# used `objdump' to do this, but the information returned is incomplete (actual
+# versus virtual size of sections etc). To solve this problem, I had to write
+# the following custom parser.
+#
+# Arguments:
+#
+#     $1 - Full path to PE-COFF executable.
+#     $2 - Directory to save files to.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_pe_coff
+{
+    local image_base="0x$("$objdump" -p "$1" | awk '/^ImageBase/ { print $2 }')"
+
+    # Compute offset to PE header and size of optional header.
+    local pe_off="$(hexdump -s 60 -n 4 -e "1/4 \"0x%x\\n\"" "$1")"
+    local opt_sz="$(hexdump -s "$(($pe_off + 20))" -n 2 -e "1/2 \"0x%x\\n\"" "$1")"
+
+    # Compute offset to section headers, number of sections and total size of
+    # section headers.
+    local sect_off="$(($pe_off + 24 + $opt_sz))"
+    local sect_cnt="$(hexdump -s "$(($pe_off + 6))" -n 2 -e "1/2 \"0x%x\\n\"" "$1")"
+    local sect_sz="$(($sect_cnt * 40))"
+
+    hexdump -s "$sect_off" -n "$sect_sz" -e "\"%.8s \" 8/4 \"%d \" \"\\n\"" "$1" | \
+            while read name vsize vma size offset _ _ _ flags; do
+
+        local r="_"
+        if (("$flags" & 0x40000000)); then
+            r="r"
+        fi
+
+        local x="_"
+        if (("$flags" & 0x20000000)); then
+            x="x"
+        fi
+
+        local w="_"
+        if (("$flags" & 0x80000000)); then
+            r="r"
+            w="w"
+        fi
+
+        # Compute virtual memory address to hexadecimal.
+        vma="$(printf "0x%x" "$(($vma + $image_base))")"
+        local filename="$2/${name//\-/_}-$vma-$vsize-$offset-l$r$w$x.bin"
+
+        write_msg "Dumping section \"$name\" in \"$filename\""
+        if [[ "$vsize" -gt "$size" ]]; then
+            dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
+
+            # The section's virtual size may be larger than the actual size of
+            # raw data. In this case the section is padded with zeros.
+            write_msg "Padding \"$name\" with zeros: $size => $vsize"
+            dd if=/dev/zero of=$filename bs=1 seek=$size count=$(($vsize - $size)) \
+                conv=notrunc &>/dev/null
+        else
+            dd if=$1 of=$filename bs=1 skip=$offset count=$vsize &>/dev/null
+        fi
+    done
 }
 
 
@@ -345,6 +415,75 @@ EOF
 }
 
 
+# Check if the specified file is an ELF executable.
+#
+# Arguments:
+#
+#     $1 - Full path to the file to check.
+#
+# Returns:
+#
+#     $? - True if the given file is an ELF, false otherwise.
+#
+function is_elf()
+{
+    local ret=1
+    local magic="$(hexdump -e '4/1 "%x" "\n"' -n 4 $1)"
+    if [[ "$magic" == "7f454c46" ]]; then
+        ret=0
+    fi
+    return $ret
+}
+
+
+# Dumps the sections of an ELF executable in separate files.
+#
+# Arguments:
+#
+#     $1 - Full path to ELF executable.
+#     $2 - Directory to save files to.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_elf()
+{
+    "$objdump" -w -h "$1" | egrep "^[[:space:]]+[[:digit:]]" | \
+            while read idx name size vma lma offset align flags; do
+        offset="$(printf "%d" 0x$offset)"
+        size="$(printf "%d" 0x$size)"
+
+        local l="_"
+        if [[ "$flags" =~ LOAD ]]; then
+            l="l"
+        fi
+
+        local r="_"
+        if [[ "$flags" =~ READONLY ]]; then
+            r="r"
+        fi
+
+        local x="_"
+        if [[ "$flags" =~ CODE ]]; then
+            x="x"
+        fi
+
+        local w="_"
+        if [[ "$flags" =~ DATA ]]; then
+            r="r"
+            w="w"
+        fi
+
+        if [[ "$flags" =~ CONTENTS ]]; then
+            local filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
+            write_msg "Dumping section \"$name\" in \"$filename\""
+            dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
+        fi
+    done
+}
+
+
 # Check if the specified file is a MacOS FAT executable.
 #
 # Arguments:
@@ -387,78 +526,6 @@ function is_macho()
 }
 
 
-# Dumps the architecture name of the executable file in "aux.ini".
-#
-# Arguments:
-#
-#     $1 - Full path to executable.
-#     $2 - Directory where "aux.ini" will be created.
-#
-# Returns:
-#
-#     $? - Undefined
-#
-function dump_arch()
-{
-    local out="$(file "$1")"
-    echo "[aux]" > "$2/aux.ini"
-    if echo $out | egrep "([xX]86[_-]64|PE32\+)" &>/dev/null; then
-        echo "arch=x86_64" >> "$2/aux.ini"
-    elif echo $out | egrep "([iI][2-6]86|[iI]ntel 80.?86|PE32)" &>/dev/null; then
-        echo "arch=i386" >> "$2/aux.ini"
-    fi
-    echo "" >> "$2/aux.ini"
-}
-
-
-# Dumps the sections of an ELF or PE-COFF executable in separate files.
-#
-# Arguments:
-#
-#     $1 - Full path to ELF or PE-COFF executable.
-#     $2 - Directory to save files to.
-#
-# Returns:
-#
-#     $? - Undefined
-#
-function dump_objdump()
-{
-    "$objdump" -w -h "$1" | egrep "^[[:space:]]+[[:digit:]]" | \
-            while read idx name size vma lma offset align flags; do
-        offset="$(printf "%d" 0x$offset)"
-        size="$(printf "%d" 0x$size)"
-
-        local l="_"
-        if [[ "$flags" =~ LOAD ]]; then
-            l="l"
-        fi
-
-        local r="_"
-        if [[ "$flags" =~ READONLY ]]; then
-            r="r"
-        fi
-
-        local x="_"
-        if  [[ "$flags" =~ CODE ]]; then
-            x="x"
-        fi
-
-        local w="_"
-        if [[ "$flags" =~ DATA ]]; then
-            r="r"
-            w="w"
-        fi
-
-        if [[ "$flags" =~ CONTENTS ]]; then
-            local filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
-            write_msg "Dumping section \"$name\" in \"$filename\""
-            dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
-        fi
-    done
-}
-
-
 # Dumps the sections of a Mach-O executable in separate files.
 #
 # Arguments:
@@ -470,7 +537,7 @@ function dump_objdump()
 #
 #     $? - Undefined
 #
-dump_otool()
+dump_macho()
 {
     otool -l "$1" | while read line; do
         if [[ "$line" =~ LC_SEGMENT(_64)?$ ]]; then
@@ -538,11 +605,11 @@ function main()
 
             if is_elf "$1"; then
                 write_msg "$1: ELF"
-                dump_objdump "$1" "$dir"
+                dump_elf "$1" "$dir"
 
             elif is_pe_coff "$1"; then
                 write_msg "$1: PE-COFF"
-                dump_objdump "$1" "$dir"
+                dump_pe_coff "$1" "$dir"
 
                 write_msg "Dumping exit points in \"aux.ini\""
                 dump_pe_coff_exit_points "$1" "$dir"
@@ -570,14 +637,14 @@ function main()
                     lipo -extract "$arch" -output "$out" "$1" &>/dev/null
 
                     mkdir "$dir/$arch" &>/dev/null
-                    dump_otool "$out" "$dir/$arch"
+                    dump_macho "$out" "$dir/$arch"
 
                     rm -fr "$out"
                 done
 
             elif is_macho "$1"; then
                 write_msg "$1: Mach-O"
-                dump_otool "$1" "$dir"
+                dump_macho "$1" "$dir"
 
             else
                 write_msg "$1: Unknown architecture"

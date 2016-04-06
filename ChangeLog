@@ -1,3 +1,10 @@
+2016-04-06 huku <huku@grhack.net>
+
+    * Added fuction `dump_pe_coff()'; a custom parser for PE-COFF files.
+    * Renamed `dump_otool()' to `dump_macho()'.
+    * Renamed `dump_objdump()' to `dump_elf()'.
+
+
 2016-03-12 huku <huku@grhack.net>
 
     * Fixed filename parsing problem in "sex_loader.py".
