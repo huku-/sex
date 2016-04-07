@@ -163,20 +163,23 @@ function dump_pe_coff
             w="w"
         fi
 
-        # Compute virtual memory address to hexadecimal.
+        # Convert virtual memory address from decimal to hexadecimal.
         vma="$(printf "0x%x" "$(($vma + $image_base))")"
         local filename="$2/${name//\-/_}-$vma-$vsize-$offset-l$r$w$x.bin"
 
         write_msg "Dumping section \"$name\" in \"$filename\""
         if [[ "$vsize" -gt "$size" ]]; then
+            # Virtual size larger than section's raw data size. Write section's
+            # raw data in output file first.
             dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
 
-            # The section's virtual size may be larger than the actual size of
-            # raw data. In this case the section is padded with zeros.
+            # Now, append zeros as instructed by the PE-COFF specification.
             write_msg "Padding \"$name\" with zeros: $size => $vsize"
             dd if=/dev/zero of=$filename bs=1 seek=$size count=$(($vsize - $size)) \
                 conv=notrunc &>/dev/null
         else
+            # Virtual size less than or equal to raw data size. Dump section
+            # contents using the virtual size.
             dd if=$1 of=$filename bs=1 skip=$offset count=$vsize &>/dev/null
         fi
     done
