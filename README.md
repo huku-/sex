@@ -29,11 +29,26 @@ A file named **aux.ini** contains information about an executable's entry
 points, exit points, relocations and function boundaries. **aux.ini** can be
 parsed using Python's [ConfigParser](https://docs.python.org/2/library/configparser.html).
 
-Here's how **sex.sh** looks like when ran on a MacOS X system against Microsoft
+
+## Installing S.EX.
+
+To install S.EX. just issue the following command:
+
+```sh
+$ sudo python setup.py install
+```
+
+The setup script will install a Python module named **sex** under **site-packages**
+and a shell script named **sex**, usually, under **/usr/local/bin**.
+
+
+## Using S.EX.
+
+Here's how **sex** looks like when ran on a MacOS X system against Microsoft
 Windows' **calc.exe**.
 
 ```sh
-$ . sex.sh calc.exe
+$ sex calc.exe
 (2015-09-17 12:44:57) [*] Creating directory "calc.exe.sex"
 (2015-09-17 12:44:57) [*] Storing auxiliary information in "calc.exe.sex/aux.ini"
 (2015-09-17 12:44:57) [*] bins/calc.exe: PE-COFF
@@ -107,7 +122,7 @@ section given a virtual address and a size.
 For example, the code below will print the first 16 bytes of **.text**.
 
 ```python
-import sex_loader
+from sex import sex_loader
 
 sl = sex_loader.SexLoader('calc.exe.sex/')
 print binascii.hexlify(sl.read(0x100001000, 16))

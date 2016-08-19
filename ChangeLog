@@ -1,3 +1,12 @@
+2016-08-19 huku <huku@grhack.net>
+
+    * Added "setup.py" installation script.
+    * Added "pylintrc" for Python sources.
+    * Renamed "sex.sh" to "sex" and moved it in "bin/".
+    * Moved "sex_loader.py" in "sex/".
+    * Updated "README.md".
+
+
 2016-04-06 huku <huku@grhack.net>
 
     * Added fuction `dump_pe_coff()'; a custom parser for PE-COFF files.

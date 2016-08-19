@@ -135,16 +135,16 @@ function dump_pe_coff
     local image_base="0x$("$objdump" -p "$1" | awk '/^ImageBase/ { print $2 }')"
 
     # Compute offset to PE header and size of optional header.
-    local pe_off="$(hexdump -s 60 -n 4 -e "1/4 \"0x%x\\n\"" "$1")"
-    local opt_sz="$(hexdump -s "$(($pe_off + 20))" -n 2 -e "1/2 \"0x%x\\n\"" "$1")"
+    local pe_off="$(hexdump -s 60 -n 4 -e '1/4 "0x%x\n"' "$1")"
+    local opt_sz="$(hexdump -s "$(($pe_off + 20))" -n 2 -e '1/2 "0x%x\n"' "$1")"
 
     # Compute offset to section headers, number of sections and total size of
     # section headers.
     local sect_off="$(($pe_off + 24 + $opt_sz))"
-    local sect_cnt="$(hexdump -s "$(($pe_off + 6))" -n 2 -e "1/2 \"0x%x\\n\"" "$1")"
+    local sect_cnt="$(hexdump -s "$(($pe_off + 6))" -n 2 -e '1/2 "0x%x\n"' "$1")"
     local sect_sz="$(($sect_cnt * 40))"
 
-    hexdump -s "$sect_off" -n "$sect_sz" -e "\"%.8s \" 8/4 \"%d \" \"\\n\"" "$1" | \
+    hexdump -s "$sect_off" -n "$sect_sz" -e '"%.8s " 8/4 "%d " "\n"' "$1" | \
             while read name vsize vma size offset _ _ _ flags; do
 
         local r="_"
