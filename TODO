@@ -1,0 +1,5 @@
+2016-10-27 huku <huku@grhack.net>
+
+    * Clean up AWK scripts embedded in "sex.sh".
+    * Implement import, export, relocation and function parsing for FAT & Mach-O.
+

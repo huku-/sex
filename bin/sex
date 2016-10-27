@@ -202,7 +202,7 @@ function dump_pe_coff_exit_points()
     local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
     cat > "$tempfile" << EOF
 BEGIN {
-    num = 0
+    i = 0
 }
 
 /^Magic/ {
@@ -228,8 +228,8 @@ BEGIN {
     getline
 
     while(!match(\$0, /^$/)) {
-        print sprintf("exit_point%d=0x%lx,%s!%s", num, thunk_address, name, \$3)
-        num += 1
+        print sprintf("exit_point%d=0x%lx,%s!%s", i, thunk_address, name, \$3)
+        i += 1
         thunk_address += thunk_size
         getline
     }
@@ -260,7 +260,7 @@ function dump_pe_coff_entry_points()
     local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
     cat > "$tempfile" << EOF
 BEGIN {
-    num = 0
+    i = 0
 }
 
 /AddressOfEntryPoint/ {
@@ -273,32 +273,32 @@ BEGIN {
 
 /Export Address Table --/ {
     getline
-    num = 0
+    i = 0
     while(!match(\$0, /^$/)) {
         split(\$0, tmp1, "] ")
         split(tmp1[3], tmp2)
-        addresses[num] = int("0x" tmp2[1]) + image_base
-        num += 1
+        addresses[i] = int("0x" tmp2[1]) + image_base
+        i += 1
         getline
     }
 }
 
 /\[Ordinal\/Name Pointer\] Table/ {
     getline
-    num = 0
+    i = 0
     while(!match(\$0, /^$/)) {
         split(\$0, tmp1, "] ")
-        names[num] = tmp1[2]
-        num += 1
+        names[i] = tmp1[2]
+        i += 1
         getline
     }
 }
 
 END {
-    addresses[num] = image_base + entry_point
-    names[num] = "<none>"
-    for(num = 0; num < length(addresses); num += 1) {
-        print sprintf("entry_point%d=0x%lx,%s", num, addresses[num], names[num])
+    addresses[i] = image_base + entry_point
+    names[i] = "<none>"
+    for(i = 0; i < length(addresses); i += 1) {
+        print sprintf("entry_point%d=0x%lx,%s", i, addresses[i], names[i])
     }
 }
 EOF
@@ -401,10 +401,10 @@ function dump_pe_coff_functions()
     getline
     getline
 
-    num = 0
+    i = 0
     while(!match(\$0, /^$/)) {
-        print sprintf("function%d=0x%lx", num, int("0x" \$2))
-        num += 1
+        print sprintf("function%d=0x%lx", i, int("0x" \$2))
+        i += 1
         getline
     }
 }
@@ -484,6 +484,131 @@ function dump_elf()
             dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
         fi
     done
+}
+
+
+# Dumps ELF dynamic symbols in "aux.ini".
+#
+# Arguments:
+#
+#     $1 - Full path to ELF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_elf_exit_points()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+BEGIN {
+    i = 0
+}
+
+/DF \*UND\*/ {
+    symbols[\$NF] = 1
+}
+
+/_JUMP_SLOT/ {
+    if(\$NF in symbols) {
+        print sprintf("exit_point%d=0x%lx,%s", i, int("0x" \$1), \$NF)
+        i += 1
+    }
+}
+EOF
+
+    echo "[exit_points]" >> "$2/aux.ini"
+    ("$objdump" -T "$1"; "$objdump" -R "$1") | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
+# Dumps ELF executable's public symbols in "aux.ini".
+#
+# Arguments:
+#
+#     $1 - Full path to ELF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_elf_entry_points()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+BEGIN {
+    i = 0
+}
+
+/DF \.text/ {
+    print sprintf("entry_point%d=0x%lx,%s", i, int("0x" \$1), \$NF);
+    i += 1
+}
+EOF
+
+    echo "[entry_points]" >> "$2/aux.ini"
+    "$objdump" -T "$1" | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
+# Dumps ELF executable's relocations in "aux.ini". Relocations for external
+# symbols are skipped.
+#
+# Arguments:
+#
+#     $1 - Full path to ELF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_elf_relocations()
+{
+    local tempfile="$(mktemp -q "${TMP:-/tmp}/sex-XXXXXXXX")"
+    cat > "$tempfile" << EOF
+BEGIN {
+    i = 0
+}
+
+/\*ABS\*/ {
+        v = int(substr(\$0, index(\$0, "*ABS*+0x") + 6))
+        print sprintf("relocation%d=0x%lx", i, v)
+        i += 1
+}
+EOF
+
+    echo "[relocations]" >> "$2/aux.ini"
+    "$objdump" -R "$1" | awk -f "$tempfile" >> "$2/aux.ini"
+    echo "" >> "$2/aux.ini"
+
+    rm -fr "$tempfile"
+}
+
+
+# Dumps ELF executable's functions in "aux.ini". Not implemented yet. DWARF
+# parsing is required.
+#
+# Arguments:
+#
+#     $1 - Full path to ELF file.
+#     $2 - Directory where "aux.ini" was created.
+#
+# Returns:
+#
+#     $? - Undefined
+#
+function dump_elf_functions()
+{
+    echo "[functions]" >> "$2/aux.ini"
 }
 
 
@@ -610,20 +735,32 @@ function main()
                 write_msg "$1: ELF"
                 dump_elf "$1" "$dir"
 
+                write_msg "Dumping ELF exit points in \"aux.ini\""
+                dump_elf_exit_points "$1" "$dir"
+
+                write_msg "Dumping ELF entry points in \"aux.ini\""
+                dump_elf_entry_points "$1" "$dir"
+
+                write_msg "Dumping ELF relocations in \"aux.ini\""
+                dump_elf_relocations "$1" "$dir"
+
+                write_msg "Dumping ELF functions in \"aux.ini\""
+                dump_elf_functions "$1" "$dir"
+
             elif is_pe_coff "$1"; then
                 write_msg "$1: PE-COFF"
                 dump_pe_coff "$1" "$dir"
 
-                write_msg "Dumping exit points in \"aux.ini\""
+                write_msg "Dumping PE-COFF exit points in \"aux.ini\""
                 dump_pe_coff_exit_points "$1" "$dir"
 
-                write_msg "Dumping entry points in \"aux.ini\""
+                write_msg "Dumping PE-COFF entry points in \"aux.ini\""
                 dump_pe_coff_entry_points "$1" "$dir"
 
-                write_msg "Dumping relocations in \"aux.ini\""
+                write_msg "Dumping PE-COFF relocations in \"aux.ini\""
                 dump_pe_coff_relocations "$1" "$dir"
 
-                write_msg "Dumping functions in \"aux.ini\""
+                write_msg "Dumping PE-COFF functions in \"aux.ini\""
                 dump_pe_coff_functions "$1" "$dir"
 
             elif is_fat "$1"; then

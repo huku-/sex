@@ -1,3 +1,9 @@
+2016-10-27 huku <huku@grhack.net>
+
+    * Added experimental support for dumping ELF exports, imports,
+      relocations and functions. Information is written in "aux.ini".
+
+
 2016-08-19 huku <huku@grhack.net>
 
     * Added "setup.py" installation script.
