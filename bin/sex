@@ -171,7 +171,7 @@ function dump_pe_coff
         if [[ "$vsize" -gt "$size" ]]; then
             # Virtual size larger than section's raw data size. Write section's
             # raw data in output file first.
-            dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
+            dd if=$1 of=$filename obs=4m ibs=1 skip=$offset count=$size &>/dev/null
 
             # Now, append zeros as instructed by the PE-COFF specification.
             write_msg "Padding \"$name\" with zeros: $size => $vsize"
@@ -180,7 +180,7 @@ function dump_pe_coff
         else
             # Virtual size less than or equal to raw data size. Dump section
             # contents using the virtual size.
-            dd if=$1 of=$filename bs=1 skip=$offset count=$vsize &>/dev/null
+            dd if=$1 of=$filename obs=4m ibs=1 skip=$offset count=$vsize &>/dev/null
         fi
     done
 }
@@ -481,7 +481,7 @@ function dump_elf()
         if [[ "$flags" =~ CONTENTS ]]; then
             local filename="$2/${name//\-/_}-0x$vma-$size-$offset-$l$r$w$x.bin"
             write_msg "Dumping section \"$name\" in \"$filename\""
-            dd if=$1 of=$filename bs=1 skip=$offset count=$size &>/dev/null
+            dd if=$1 of=$filename obs=4m ibs=1 skip=$offset count=$size &>/dev/null
         fi
     done
 }
@@ -704,9 +704,30 @@ dump_macho()
             local filename="$2/$segname.$sectname-$addr-$size-$offset-$l$r$w$x.bin"
 
             write_msg "Dumping section \"$segname.$sectname\" to \"$filename\""
-            dd if="$1" of="$filename" bs=1 count=$size skip=$offset &>/dev/null
+            dd if="$1" of=$filename obs=4m ibs=1 count=$size skip=$offset &>/dev/null
         fi
     done
+}
+
+
+function dump_macho_exit_points()
+{
+    echo "[exit_points]" >> "$2/aux.ini"
+}
+
+function dump_macho_entry_points()
+{
+    echo "[entry_points]" >> "$2/aux.ini"
+}
+
+function dump_macho_relocations()
+{
+    echo "[relocations]" >> "$2/aux.ini"
+}
+
+function dump_macho_functions()
+{
+    echo "[functions]" >> "$2/aux.ini"
 }
 
 
@@ -715,6 +736,9 @@ function main()
     if [[ $# -lt 1 ]]; then
         echo "$0 <file(s)>"
     else
+        # Throw away error messages.
+        exec 2>/dev/null
+
         # Resolve full path to `objdump'. On MacOS X, some package management
         # tools install `objdump' as `gobjdump'.
         objdump="$(which objdump || which gobjdump)"
@@ -779,6 +803,18 @@ function main()
                     mkdir "$dir/$arch" &>/dev/null
                     dump_macho "$out" "$dir/$arch"
 
+                    write_msg "Dumping Mach-O exit points in \"aux.ini\""
+                    dump_macho_exit_points "$1" "$dir/$arch"
+
+                    write_msg "Dumping Mach-O entry points in \"aux.ini\""
+                    dump_macho_entry_points "$1" "$dir/$arch"
+
+                    write_msg "Dumping Mach-O relocations in \"aux.ini\""
+                    dump_macho_relocations "$1" "$dir/$arch"
+
+                    write_msg "Dumping Mach-O functions in \"aux.ini\""
+                    dump_macho_functions "$1" "$dir/$arch"
+
                     rm -fr "$out"
                 done
 
@@ -786,6 +822,17 @@ function main()
                 write_msg "$1: Mach-O"
                 dump_macho "$1" "$dir"
 
+                write_msg "Dumping Mach-O exit points in \"aux.ini\""
+                dump_macho_exit_points "$1" "$dir/$arch"
+
+                write_msg "Dumping Mach-O entry points in \"aux.ini\""
+                dump_macho_entry_points "$1" "$dir/$arch"
+
+                write_msg "Dumping Mach-O relocations in \"aux.ini\""
+                dump_macho_relocations "$1" "$dir/$arch"
+
+                write_msg "Dumping Mach-O functions in \"aux.ini\""
+                dump_macho_functions "$1" "$dir/$arch"
             else
                 write_msg "$1: Unknown architecture"
             fi

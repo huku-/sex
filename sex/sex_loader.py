@@ -22,8 +22,9 @@ class Section(object):
         self.offset = int(components[3])
         self.flags = components[4]
 
-        # For convenience precompute the section's end address as well.
-        self.end_address = self.start_address + self.size
+        # For convenience precompute the section's end address as well. This is
+        # the address of the last byte in this section.
+        self.end_address = self.start_address + self.size - 1
 
         with open(filename, 'rb') as fp:
             self.data = fp.read()
@@ -39,6 +40,7 @@ class SexLoader(object):
 
         self.sections = []
 
+        self.arch = None
         self.exit_points = set()
         self.entry_points = set()
         self.relocations = set()
@@ -97,22 +99,11 @@ class SexLoader(object):
         Returns section's `Section' instance or `None' on error.
         '''
 
-        ret = section = None
-
-        # Setting `cur' to -1 will take care of an empty section list.
-        cur, left, right = -1, 0, len(self.sections)
-        while cur != (left + right) / 2:
-            cur = (left + right) / 2
-            section = self.sections[cur]
-            if address < section.start_address:
-                right = cur
-            elif address >= section.start_address:
-                left = cur
-
-        # Binary search outcome needs to be verified.
-        if section and address >= section.start_address and \
-                address + length - 1 < section.end_address:
-            ret = section
+        ret = None
+        for section in self.sections:
+            if section.start_address <= address <= section.end_address:
+                ret = section
+                break
 
         return ret
 
